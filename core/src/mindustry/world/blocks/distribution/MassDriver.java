@@ -38,8 +38,13 @@ public class MassDriver extends Block{
     public Sound shootSound = Sounds.shootBig;
     public float shake = 3f;
     public @Load("@-base") TextureRegion baseRegion;
+    public boolean isBridge;
 
     public MassDriver(String name){
+        this(name, false);
+    }
+
+    public MassDriver(String name, boolean isBridge){
         super(name);
         update = true;
         solid = true;
@@ -49,6 +54,8 @@ public class MassDriver extends Block{
         outlineIcon = true;
         sync = true;
         envEnabled |= Env.space;
+        this.isBridge = isBridge;
+        unloadable = !isBridge;
 
         //point2 is relative
         config(Point2.class, (MassDriverBuild tile, Point2 point) -> tile.link = Point2.pack(point.x + tile.tileX(), point.y + tile.tileY()));
@@ -106,7 +113,8 @@ public class MassDriver extends Block{
 
     public class MassDriverBuild extends Building{
         public int link = -1;
-        public float rotation = 90;
+        public float rotation = 90; //Drivers: Rotation     Bridges: inputRotation
+        public float outputRotation = 90; //Bridges only!
         public float reload = 0f;
         public DriverState state = DriverState.idle;
         //TODO use queue? this array usually holds about 3 shooters max anyway
@@ -118,6 +126,100 @@ public class MassDriver extends Block{
 
         @Override
         public void updateTile(){
+            if(isBridge){updateBridgeTile();}
+            else{updateDriverTile();}
+        }
+
+        public void updateBridgeTile(){
+            Building link = world.build(this.link);
+            boolean hasLink = linkValid();
+
+            if(hasLink){
+                this.link = link.pos();
+            }
+
+            //reload regardless of state
+            if(reload > 0f){
+                reload = Mathf.clamp(reload - edelta() / reloadTime);
+            }
+
+            var current = currentShooter();
+
+            //cleanup waiting shooters that are not valid
+            if(current != null && !shooterValid(current)){
+                waitingShooters.remove(current);
+            }
+
+            //switch states
+            if(state == DriverState.idle){
+                //start accepting when idle and there's space
+                if(!waitingShooters.isEmpty() && (items.total() == 0)){
+                    state = DriverState.accepting;
+                }else if(hasLink){ //switch to shooting if there's a valid link.
+                    state = DriverState.shooting;
+                }
+            }
+
+            if(!consValid()){
+                return;
+            }
+
+            if (state == DriverState.shooting && items.total() == 0) {
+                state = DriverState.accepting;
+            }
+
+            if(state == DriverState.accepting){
+                //if there's nothing shooting at this, bail - OR, items full
+                if(currentShooter() == null || (itemCapacity - items.total() < minDistribute)){
+                    state = DriverState.idle;
+                    return;
+                }
+
+                //align to shooter rotation
+                rotation = Angles.moveToward(rotation, angleTo(currentShooter()), rotateSpeed * efficiency());
+            }
+
+
+            //if there's nothing to shoot at OR someone wants to shoot at this thing, bail
+            if(!hasLink){
+                state = DriverState.idle;
+                return;
+            }
+
+            float targetRotation = angleTo(link);
+
+            if(
+                    items.total() >= minDistribute && //must shoot minimum amount of items
+                    link.block.itemCapacity - link.items.total() >= minDistribute //must have minimum amount of space
+            ){
+                MassDriverBuild other = (MassDriverBuild)link;
+                other.waitingShooters.add(this);
+
+                if(reload <= 0.0001f){
+
+                    //align to target location
+                    outputRotation = Angles.moveToward(outputRotation, targetRotation, rotateSpeed * efficiency());
+
+                    //fire when it's the first in the queue and angles are ready.
+                    if(other.currentShooter() == this &&
+                    (other.state == DriverState.accepting || other.isBridge()) &&
+                    Angles.near(outputRotation, targetRotation, 2f) && Angles.near(other.rotation, targetRotation + 180f, 2f)){
+                        //actually fire (Bullet speed is dependent on receiver + cannot exceed speed limit itself)
+                        fire(other, Math.min(((MassDriver) other.block).bulletSpeed, bulletSpeed), other.block == Blocks.massBridge);
+                        float timeToArrive = Math.min(bulletLifetime, dst(other) / bulletSpeed);
+                        Time.run(timeToArrive, () -> {
+                            //remove waiting shooters, it's done firing
+                            other.waitingShooters.remove(this);
+                            other.state = DriverState.idle;
+                        });
+                        //driver is immediately idle
+                        state = DriverState.idle;
+                    }
+                }
+            }
+        }
+
+        public void updateDriverTile(){
             Building link = world.build(this.link);
             boolean hasLink = linkValid();
 
@@ -148,7 +250,7 @@ public class MassDriver extends Block{
             }
 
             //dump when idle or accepting
-            if(state == DriverState.idle || state == DriverState.accepting){
+            if((state == DriverState.idle || state == DriverState.accepting)){
                 dumpAccumulate();
             }
 
@@ -189,10 +291,10 @@ public class MassDriver extends Block{
 
                         //fire when it's the first in the queue and angles are ready.
                         if(other.currentShooter() == this &&
-                        other.state == DriverState.accepting &&
+                        (other.state == DriverState.accepting || other.isBridge()) &&
                         Angles.near(rotation, targetRotation, 2f) && Angles.near(other.rotation, targetRotation + 180f, 2f)){
                             //actually fire
-                            fire(other);
+                            fire(other, false);
                             float timeToArrive = Math.min(bulletLifetime, dst(other) / bulletSpeed);
                             Time.run(timeToArrive, () -> {
                                 //remove waiting shooters, it's done firing
@@ -220,11 +322,21 @@ public class MassDriver extends Block{
             Draw.z(Layer.turret);
 
             Drawf.shadow(region,
-            x + Angles.trnsx(rotation + 180f, reload * knockback) - (size / 2),
-            y + Angles.trnsy(rotation + 180f, reload * knockback) - (size / 2), rotation - 90);
+                    x + Angles.trnsx(rotation + 180f, reload * knockback) - (size / 2),
+                    y + Angles.trnsy(rotation + 180f, reload * knockback) - (size / 2), rotation - 90);
             Draw.rect(region,
-            x + Angles.trnsx(rotation + 180f, reload * knockback),
-            y + Angles.trnsy(rotation + 180f, reload * knockback), rotation - 90);
+                    x + Angles.trnsx(rotation + 180f, reload * knockback),
+                    y + Angles.trnsy(rotation + 180f, reload * knockback), rotation - 90);
+
+            //Draw second cannon for bridges (output cannon)
+            if(isBridge){
+                Drawf.shadow(region,
+                        x + Angles.trnsx(outputRotation + 180f, reload * knockback) - (size / 2),
+                        y + Angles.trnsy(outputRotation + 180f, reload * knockback) - (size / 2), outputRotation - 90);
+                Draw.rect(region,
+                        x + Angles.trnsx(outputRotation + 180f, reload * knockback),
+                        y + Angles.trnsy(outputRotation + 180f, reload * knockback), outputRotation - 90);
+            }
         }
 
         @Override
@@ -260,7 +372,7 @@ public class MassDriver extends Block{
             if(link == other.pos()){
                 configure(-1);
                 return false;
-            }else if(other.block == block && other.dst(tile) <= range && other.team == team){
+            }else if(other.block instanceof MassDriver && other.dst(tile) <= range && other.team == team){
                 configure(other.pos());
                 return false;
             }
@@ -270,11 +382,15 @@ public class MassDriver extends Block{
 
         @Override
         public boolean acceptItem(Building source, Item item){
-            //mass drivers that output only cannot accept items
-            return items.total() < itemCapacity && linkValid();
+            //mass drivers that output only OR are bridges cannot accept items
+            return items.total() < itemCapacity && linkValid() && !isBridge;
         }
 
-        protected void fire(MassDriverBuild target){
+        protected void fire(MassDriverBuild target, boolean fireTrail){
+            fire(target, bulletSpeed, fireTrail);
+        }
+
+        protected void fire(MassDriverBuild target, float bulletSpeed, boolean fireTrail){
             //reset reload, use power.
             reload = 1f;
 
@@ -293,7 +409,7 @@ public class MassDriver extends Block{
 
             bullet.create(this, team,
                 x + Angles.trnsx(angle, translation), y + Angles.trnsy(angle, translation),
-                angle, -1f, bulletSpeed, bulletLifetime, data);
+                angle, -1f, bulletSpeed, bulletLifetime, fireTrail, data);
 
             shootEffect.at(x + Angles.trnsx(angle, translation), y + Angles.trnsy(angle, translation), angle);
             smokeEffect.at(x + Angles.trnsx(angle, translation), y + Angles.trnsy(angle, translation), angle);
@@ -326,12 +442,16 @@ public class MassDriver extends Block{
         }
 
         protected boolean shooterValid(Building other){
-            return other instanceof MassDriverBuild entity && other.isValid() && other.consValid() && entity.block == block && entity.link == pos() && within(other, range);
+            return other instanceof MassDriverBuild entity && other.isValid() && other.consValid() && entity.block instanceof MassDriver && entity.link == pos() && within(other, range);
         }
 
         protected boolean linkValid(){
             if(link == -1) return false;
-            return world.build(this.link) instanceof MassDriverBuild other && other.block == block && other.team == team && within(other, range);
+            return world.build(this.link) instanceof MassDriverBuild other && other.block instanceof MassDriver && other.team == team && within(other, range);
+        }
+
+        protected boolean isBridge() {
+            return isBridge;
         }
 
         @Override

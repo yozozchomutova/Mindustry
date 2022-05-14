@@ -8,6 +8,7 @@ import arc.util.*;
 import mindustry.annotations.Annotations.*;
 import mindustry.content.*;
 import mindustry.core.*;
+import mindustry.entities.Effect;
 import mindustry.entities.bullet.*;
 import mindustry.game.*;
 import mindustry.game.Teams.*;
@@ -36,6 +37,7 @@ abstract class BulletComp implements Timedc, Damagec, Hitboxc, Teamc, Posc, Draw
 
     transient boolean absorbed, hit;
     transient @Nullable Trail trail;
+    transient @Nullable Effect trailEffect;
 
     @Override
     public void getCollisions(Cons<QuadTree> consumer){

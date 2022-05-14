@@ -61,7 +61,7 @@ public class Blocks implements ContentList{
 
     //transport
     conveyor, titaniumConveyor, plastaniumConveyor, armoredConveyor, distributor, junction, itemBridge, phaseConveyor, sorter, invertedSorter, router,
-    overflowGate, underflowGate, massDriver,
+    overflowGate, underflowGate, massDriver, massBridge,
     duct, ductRouter, ductBridge,
 
     //liquid
@@ -1054,6 +1054,21 @@ public class Blocks implements ContentList{
             reloadTime = 200f;
             range = 440f;
             consumes.power(1.75f);
+        }};
+
+        massBridge = new MassDriver("mass-bridge", true){{
+            requirements(Category.distribution, with(Items.titanium, 125, Items.silicon, 75, Items.lead, 125, Items.thorium, 50));
+            size = 2;
+            itemCapacity = 120;
+            reloadTime = 1f;
+            minDistribute = 1;
+            range = 440f;
+            bulletSpeed = 11f;
+            outputsPayload = false;
+            rotateSpeed = 11f;
+            knockback = 6.5f;
+            shake = 0.5f;
+            consumes.power(1.6f);
         }};
 
         //special transport blocks

@@ -3,7 +3,9 @@ package mindustry.entities.bullet;
 import arc.graphics.*;
 import arc.graphics.g2d.*;
 import arc.math.*;
+import arc.util.Nullable;
 import mindustry.content.*;
+import mindustry.game.Team;
 import mindustry.gen.*;
 import mindustry.graphics.*;
 import mindustry.world.blocks.distribution.MassDriver.*;
@@ -18,6 +20,7 @@ public class MassDriverBolt extends BulletType{
         lifetime = 1f;
         despawnEffect = Fx.smeltsmoke;
         hitEffect = Fx.hitBulletBig;
+        trailEffect = null;
     }
 
     @Override
@@ -31,7 +34,14 @@ public class MassDriverBolt extends BulletType{
         Draw.rect("shell", b.x, b.y, w, h, b.rotation() + 90);
 
         Draw.reset();
+
+        //Draw trail
+        if(b.trailEffect != null && b.timer(0, b.fslope() * 0.1f)){
+            b.trailEffect.at(b.x, b.y);
+        }
     }
+
+
 
     @Override
     public void update(Bullet b){
@@ -75,6 +85,13 @@ public class MassDriverBolt extends BulletType{
         if(intersect){
             data.to.handlePayload(b, data);
         }
+    }
+
+    public Bullet create(@Nullable Entityc owner, Team team, float x, float y, float angle, float damage, float velocityScl, float lifetimeScl, boolean fireTrail, Object data){
+        Bullet b = create(owner, team, x, y, angle, damage, velocityScl, lifetimeScl, data);
+        if(fireTrail)
+            b.trailEffect = Fx.ballfire;
+        return b;
     }
 
     @Override

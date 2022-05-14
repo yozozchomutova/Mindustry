@@ -56,6 +56,9 @@ public class TechTree implements ContentList{
                                         node(payloadPropulsionTower, () -> {
 
                                         });
+                                        node(massBridge, () -> {
+
+                                        });
                                     });
                                 });
 
